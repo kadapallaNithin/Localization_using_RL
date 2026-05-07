@@ -25,13 +25,19 @@ EXPERIMENT_CONFIG["experiment"]["name"] = "dqn"
 
 # EXPERIMENT_CONFIG["state"]["type"] = "signal_delta"
 # EXPERIMENT_CONFIG["reward"]["type"] = "improvement"
-EXPERIMENT_CONFIG["experiment"]["episodes"] = 1000_000
-EXPERIMENT_CONFIG["experiment"]["print_interval"] = 1000
-# EXPERIMENT_CONFIG["agent"]["params"]["tau"] = 4e-2
+EVAL = True
+if EVAL:
+    episodes = 5000
+    EXPERIMENT_CONFIG["agent"]["params"]["tau"] = 1
+else:
+    episodes = 1000_000
+    EXPERIMENT_CONFIG["agent"]["params"]["tau"] = 5/episodes
+EXPERIMENT_CONFIG["experiment"]["episodes"] = episodes
+EXPERIMENT_CONFIG["experiment"]["print_interval"] = 1000 if episodes > 1000 else 100
 # EXPERIMENT_CONFIG["experiment"]["render"] = True
 # EXPERIMENT_CONFIG["state"]["type"] = 'signal_action_quadrant'
 EXPERIMENT_CONFIG["state"]["type"] = 'signal_history_quadrant'
-# EXPERIMENT_CONFIG["state"]["history_length"] = 5
+EXPERIMENT_CONFIG["state"]["history_length"] = 5
 # EXPERIMENT_CONFIG["reward"] = {
 #     "type": "sparse_find",
 #     "params": {

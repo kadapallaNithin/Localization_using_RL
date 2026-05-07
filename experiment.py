@@ -5,7 +5,6 @@ from agents.factory import build_agent
 from env import build_env
 # from episode_handler import load_episode_initializations
 from plot import plot_metrics
-import torch
 # from visualization.pf_visualizer import PFVisualizer
 from pprint import pprint
 from copy import deepcopy
@@ -15,7 +14,11 @@ from copy import deepcopy
 
 def set_seed(seed):
     np.random.seed(seed)
-    torch.manual_seed(seed)
+    try:
+        import torch
+        torch.manual_seed(seed)
+    except ModuleNotFoundError:
+        pass
 
 def get_file_path(cfg, name):
     # print(f"Getting file path for: {name}", cfg["experiment"]["name"])
@@ -54,6 +57,14 @@ class Metrics:
 
 
     def save(self, cfg):
+        metrics = self.to_dict(cfg)
+
+        file_path = get_file_path(cfg, "metrics.json")
+        with open(file_path, "w") as f:
+            json.dump(metrics, f, indent=2)
+        print(f"Results saved to: {file_path}")
+
+    def to_dict(self, cfg=None):
         metrics = {
             "config": cfg,
             "rewards": self.rewards,
@@ -61,11 +72,7 @@ class Metrics:
             "norm_dists": self.norm_dists,
             "dones": self.dones,
         }
-
-        file_path = get_file_path(cfg, "metrics.json")
-        with open(file_path, "w") as f:
-            json.dump(metrics, f, indent=2)
-        print(f"Results saved to: {file_path}")
+        return metrics
 
     def plot(self, cfg):
         plot_metrics(
@@ -95,11 +102,12 @@ def run_experiment(cfg, episode_init_csv=None):
     os.makedirs(dir_path, exist_ok=True)
 
     env = build_env(cfg)
-    pprint(cfg)
+    if expt_cfg.get("verbose", True):
+        pprint(cfg)
     if cfg["agent"]["type"] == "Supervised":
-        cfg["agent"]["params"]['student_cfg']['agent']['params']["path"] = get_file_path(cfg, 'model')
+        cfg["agent"]["params"]['student_cfg']['agent']['params'].setdefault("path", get_file_path(cfg, 'model'))
     else:
-        cfg["agent"]["params"]["path"] = get_file_path(cfg, 'model')
+        cfg["agent"]["params"].setdefault("path", get_file_path(cfg, 'model'))
     agent = build_agent(
         cfg["agent"],
         state_dim=env.observation_space.shape[0],
@@ -117,6 +125,10 @@ def run_experiment(cfg, episode_init_csv=None):
     episodes = expt_cfg["episodes"]
     max_steps = expt_cfg["max_steps"]
     render = expt_cfg["render"]
+    training = expt_cfg.get("training", True)
+
+    if not training and hasattr(agent, "epsilon"):
+        agent.epsilon = getattr(agent, "eps_min", 0.0)
 
     metrics = Metrics()
     print_intvl = cfg['experiment']['print_interval']
@@ -126,6 +138,7 @@ def run_experiment(cfg, episode_init_csv=None):
 
     # ------------------ training loop ------------------
     for ep in range(episodes):
+        # print(f"Episode {ep+1}/{episodes}")
         if episode_inits is not None:
             state, info = env.reset(options=episode_inits[ep])
         else:
@@ -155,7 +168,8 @@ def run_experiment(cfg, episode_init_csv=None):
             cumulative_distance += np.linalg.norm(new_pos - prev_pos)
             prev_pos = new_pos
 
-            agent.update(state, action, reward, next_state, done) # or truncated
+            if training:
+                agent.update(state, action, reward, next_state, done) # or truncated
             # if hasattr(agent, "_last_truncated"):
             #     # Provide time-limit info for debugging whether Q-learning is bootstrapping incorrectly.
             #     agent._last_truncated = bool(truncated)
@@ -211,7 +225,7 @@ def run_experiment(cfg, episode_init_csv=None):
         #         pass
         # # #endregion
 
-        if hasattr(agent, "end_episode"):
+        if training and hasattr(agent, "end_episode"):
             agent.end_episode()
 
         start_to_goal = np.linalg.norm(goal_pos - start_pos)
@@ -233,65 +247,68 @@ def run_experiment(cfg, episode_init_csv=None):
 
     metrics.save(cfg)
     metrics.plot(cfg)
-    agent.save()
+    if training:
+        agent.save()
 
-    print("Experiment finished.")
+    print("Experiment finished.\n")
+    return metrics.to_dict(cfg)
 
-experiments = []
-# from config.belief_mpc_pf import EXPERIMENT_CONFIG
+if __name__ == "__main__":
+    experiments = []
+    # from config.belief_mpc_pf import EXPERIMENT_CONFIG
 
-# from config.dqn import EXPERIMENT_CONFIG
-# experiments.append((deepcopy(EXPERIMENT_CONFIG), [0.0]))
+    from config.dqn import EXPERIMENT_CONFIG
+    experiments.append((deepcopy(EXPERIMENT_CONFIG), [0.0]))
 
-# from config.ppo_lstm import EXPERIMENT_CONFIG
-# experiments.append((deepcopy(EXPERIMENT_CONFIG), [0.0, 0.02, 0.05]))
+    # from config.ppo_lstm import EXPERIMENT_CONFIG
+    # experiments.append((deepcopy(EXPERIMENT_CONFIG), [0.0, 0.02, 0.05]))
 
-# from config.base import get_config
-# EXPERIMENT_CONFIG = get_config()
-# EXPERIMENT_CONFIG['agent']['type'] = 'Grad'
-# EXPERIMENT_CONFIG['state']['type'] = 'signal_history_quadrant'
-# EXPERIMENT_CONFIG["experiment"]["name"] = "grad"
+    # from config.base import get_config
+    # EXPERIMENT_CONFIG = get_config()
+    # EXPERIMENT_CONFIG['agent']['type'] = 'Grad'
+    # EXPERIMENT_CONFIG['state']['type'] = 'signal_history_quadrant'
+    # EXPERIMENT_CONFIG["experiment"]["name"] = "grad"
 
-# from config.manual import EXPERIMENT_CONFIG
+    # from config.manual import EXPERIMENT_CONFIG
 
-# from config.q_learning import EXPERIMENT_CONFIG
-# experiments.append((deepcopy(EXPERIMENT_CONFIG), [0.02]))
+    # from config.q_learning import EXPERIMENT_CONFIG
+    # experiments.append((deepcopy(EXPERIMENT_CONFIG), [0.02]))
 
-# from smo.dqn_smo_config import EXPERIMENT_CONFIG
+    # from smo.dqn_smo_config import EXPERIMENT_CONFIG
 
-# raise Exception('check config', EXPERIMENT_CONFIG['agent']['path'])
-from config.supervised import EXPERIMENT_CONFIG
-experiments.append((deepcopy(EXPERIMENT_CONFIG), [0.0]))
+    # raise Exception('check config', EXPERIMENT_CONFIG['agent']['path'])
+    # from config.supervised import EXPERIMENT_CONFIG
+    # experiments.append((deepcopy(EXPERIMENT_CONFIG), [0.0]))
 
-# print('dqn')
-# pprint(dqn_exp_cfg)
-# print('ppo')
-# pprint(PPO_EXPERIMENT_CONFIG)
+    # print('dqn')
+    # pprint(dqn_exp_cfg)
+    # print('ppo')
+    # pprint(PPO_EXPERIMENT_CONFIG)
 
 
-for cfg, noise_levels in experiments:
-    print(noise_levels)
-    # pprint(cfg)
-    print(cfg['state']['type'])
+    for cfg, noise_levels in experiments:
+        print(noise_levels)
+        # pprint(cfg)
+        print(cfg['state']['type'])
 
-    for noise in noise_levels:
-        cfg["environment"]["sensor"]["noise_std"] = noise
-        cfg["experiment"]["name"] += f"_{noise:.3f}".format(noise=noise)
-        print(f"Running experiment: {cfg['experiment']['name']}")
-        run_experiment(
-            cfg,
-            # episode_init_csv="episode_init.csv"
-        )
+        for noise in noise_levels:
+            cfg["environment"]["sensor"]["noise_std"] = noise
+            cfg["experiment"]["name"] += f"_{noise:.3f}".format(noise=noise)
+            print(f"Running experiment: {cfg['experiment']['name']}")
+            run_experiment(
+                cfg,
+                # episode_init_csv="episode_init.csv"
+            )
 
-# run_experiment()
+    # run_experiment()
 
-# cfg = json.load(open('results/dqn_noise_0.0_metrics1.json'))
-# rewards = cfg['rewards']
-# steps_list = cfg['steps']
-# plot_metrics(
-#     rewards,
-#     steps_list,
-#     "DQN",
-#     "_training.png",
-#     window=100,
-# )
+    # cfg = json.load(open('results/dqn_noise_0.0_metrics1.json'))
+    # rewards = cfg['rewards']
+    # steps_list = cfg['steps']
+    # plot_metrics(
+    #     rewards,
+    #     steps_list,
+    #     "DQN",
+    #     "_training.png",
+    #     window=100,
+    # )

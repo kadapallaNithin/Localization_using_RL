@@ -25,12 +25,15 @@ class ManualAgent(Agent):
         print(action, reward, done)
 
 class UniformSearchAgent(Agent):
-    def __init__(self, area_size=200, sweep_step=3):
+    def __init__(self, area_size=200, sweep_step=3, path=None):
         self.area_size = area_size
         self.sweep_step = sweep_step
         self.direction = 1      # +1 = moving right, -1 = moving left
         self.vertical_dir = 1   # +1 = going up, -1 = going down
         self.position = None
+
+    def set_uav_position(self, pos):
+        self.position = list(pos)
 
     def reset(self, start_pos):
         self.position = list(start_pos)
@@ -38,7 +41,14 @@ class UniformSearchAgent(Agent):
         self.vertical_dir = 1   # start moving upward
         return self.position
 
-    def act(self, x, y):
+    def act(self, state=None, y=None):
+        if y is None:
+            if self.position is None:
+                return 40
+            x, y = self.position
+        else:
+            x = state
+
         # --- Horizontal Sweep ---
         if self.direction == 1:  # moving right
             if x < self.area_size - self.sweep_step:
@@ -73,6 +83,15 @@ class UniformSearchAgent(Agent):
         speed = 2  # medium speed (0–2)
         action = speed * 8 + direction
         return action
+
+    def update(self, *args):
+        pass
+
+    def save(self, *args, **kwargs):
+        pass
+
+    def load(self, *args, **kwargs):
+        pass
 
 # ================= GRADIENT-BASED (HILL CLIMBING) AGENT =================
 class GradientBasedAgent(Agent):

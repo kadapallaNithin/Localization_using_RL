@@ -1,7 +1,40 @@
 import json
 
-import gymnasium as gym
-from gymnasium import spaces
+try:
+    import gymnasium as gym
+    from gymnasium import spaces
+except ModuleNotFoundError:
+    class _FallbackEnv:
+        def reset(self, seed=None):
+            if seed is not None:
+                np.random.seed(seed)
+
+        def close(self):
+            pass
+
+    class _FallbackDiscrete:
+        def __init__(self, n):
+            self.n = n
+
+        def sample(self):
+            return np.random.randint(self.n)
+
+    class _FallbackBox:
+        def __init__(self, low, high, dtype=None):
+            self.low = np.array(low, dtype=dtype)
+            self.high = np.array(high, dtype=dtype)
+            self.dtype = dtype
+            self.shape = self.low.shape
+
+    class _FallbackGym:
+        Env = _FallbackEnv
+
+    class _FallbackSpaces:
+        Discrete = _FallbackDiscrete
+        Box = _FallbackBox
+
+    gym = _FallbackGym()
+    spaces = _FallbackSpaces()
 from abc import ABC, abstractmethod
 from collections import deque
 # from gym import spaces
@@ -149,7 +182,7 @@ class UAVEnv(gym.Env):
         self.state_builder = state_builder
         self.reward_fn = reward_fn
         self.observer = observer
-        print("Oberver:", observer)
+        print("Observer:", observer)
         self.history_length = history_length
         self.readings = readings
         self.no_op_action = 40  # Define no-op action index
@@ -459,5 +492,3 @@ class UAVEnv(gym.Env):
         if self.readings:
             self.readings['true_readings'].append(reading)
         return reading
-
-

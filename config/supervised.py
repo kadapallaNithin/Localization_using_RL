@@ -3,8 +3,8 @@ from copy import deepcopy
 from config.base import get_config
 
 # Switch to select student agent type: "q_learning" or "dqn"
-STUDENT_TYPE = "dqn"  # Change to "dqn" to train DQN with Grad teacher
-
+# STUDENT_TYPE = "q_learning"  # Change to "dqn" to train DQN with Grad teacher
+STUDENT_TYPE = "dqn"
 EXPERIMENT_CONFIG = get_config()
 
 # Determine student config based on switch
@@ -33,11 +33,12 @@ if STUDENT_TYPE == "dqn":
     history_length = 5
 else:  # q_learning
     from config.q_learning import EXPERIMENT_CONFIG as QLEARN_CONFIG
+    # student_cfg = QLEARN_CONFIG
     student_cfg = {
         "type": "Q-learning",
         "params": {},
     }
-    episodes = 10_000
+    episodes = 15_000_000
     print_interval = 1000
     state_type = None  # Will use default from base
     history_length = 3

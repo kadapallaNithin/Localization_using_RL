@@ -114,6 +114,7 @@ def run_experiment(cfg, episode_init_csv=None):
         action_dim=env.action_space.n,
         env_size=cfg["environment"]["size"],
         state_builder_type=cfg["state"]["type"],
+        normalize=cfg["state"].get("normalize", False),
     )
     # grad_agent = build_agent(
     #     {'type':'Grad'},

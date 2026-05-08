@@ -85,7 +85,11 @@ class SignalHistoryActionState(StateBuilder):
     where gradient_i = signal_i - signal_(i-1)
 
     This builder uses the full signal_history and action_history from the environment.
+    normalize: if True, actions are scaled to [0,1] (action/40) and bounds reflect that.
     """
+    def __init__(self, normalize=False):
+        self.normalize = normalize
+
     def observation_space(self, history_length=3):
         # State: [signal_0, action_0, gradient_1, action_1, ..., gradient_k]
         # Size: 1 + 1 + (history_length - 1) * 2 + 1 = history_length * 2 + 1
@@ -95,7 +99,8 @@ class SignalHistoryActionState(StateBuilder):
         low[1::2] = 0    # Actions have min 0
 
         high = np.full(state_size, 1.0, dtype=np.float32)
-        high[1::2] = 40  # Actions can be 0-40 (including no_op)
+        if not self.normalize:
+            high[1::2] = 40  # raw action range [0, 40]
 
         return low, high
 
@@ -117,9 +122,10 @@ class SignalHistoryActionState(StateBuilder):
         # Add first signal
         state.append(float(signal_list[0]))
 
-        # Interleave actions and gradients
+        # Interleave actions and gradients; normalize actions to [0,1] when configured
+        action_scale = 40.0 if self.normalize else 1.0
         for i in range(len(action_list)):
-            state.append(float(action_list[i]))
+            state.append(float(action_list[i]) / action_scale)
             if i + 1 < len(signal_list):
                 gradient = float(signal_list[i + 1] - signal_list[i])
                 state.append(gradient)
@@ -152,15 +158,17 @@ class SignalHistoryQuadrantState(SignalHistoryActionState):
         low[-1] = 0      # Quadrant has min 0
 
         high = np.full(state_size, 1.0, dtype=np.float32)
-        high[1::2] = 40   # Actions can be 0-40 (including no_op)
-        high[-1] = 3      # Quadrant can be 0-3
+        if not self.normalize:
+            high[1::2] = 40  # raw action range [0, 40]
+            high[-1] = 3     # raw quadrant range [0, 3]
 
         return low, high
 
     def build(self, mt0, mt1, action, env, signal_history=None, action_history=None):
         base_state = super().build(mt0, mt1, action, env, signal_history, action_history)
         w = env.uav.get_quadrant(env.size)
-        state = np.append(base_state, w)
+        quad_scale = 3.0 if self.normalize else 1.0
+        state = np.append(base_state, w / quad_scale)
         # print(len(state))
         return state
 
@@ -182,22 +190,22 @@ def build_state(cfg):
 
     elif t == "signal_history_action":
         history_length = cfg.get("history_length", 3)
-        state_builder = SignalHistoryActionState()
-        # Store history_length as attribute for later use
+        normalize = cfg.get("normalize", False)
+        state_builder = SignalHistoryActionState(normalize=normalize)
         state_builder.history_length = history_length
         return state_builder
 
     elif t == "signal_history_quadrant":
         history_length = cfg.get("history_length", 3)
-        state_builder = SignalHistoryQuadrantState()
-        # Store history_length as attribute for later use
+        normalize = cfg.get("normalize", False)
+        state_builder = SignalHistoryQuadrantState(normalize=normalize)
         state_builder.history_length = history_length
         return state_builder
 
     raise ValueError(f"Unknown state type: {t}")
 
 
-def extract_state_components(state, state_builder_type):
+def extract_state_components(state, state_builder_type, normalize=False):
     """
     Extract prev_signal, curr_signal, and last_action from state.
 
@@ -207,12 +215,16 @@ def extract_state_components(state, state_builder_type):
     - signal_action_quadrant: [signal_0, signal_1, action, quadrant]      -> prev=signal_0, curr=signal_1, last_action=action
     - signal_delta_action_quadrant: [signal_0, delta, action, quadrant]
       -> prev=signal_0, curr=signal_0+delta, last_action=action
-    - signal_history_action: [signal_0, action_0, gradient_1, action_1, ..., gradient_k]
+    - signal_history_action: [signal_0, action_0[/40], gradient_1, action_1[/40], ..., gradient_k]
       -> prev=signal_0, curr=signal_0+sum(gradients), last_action=last_action_in_history
+
+    normalize: must match the flag used when the state was built (signal_history_* only).
+               When True, stored actions are action/40 and are denormalized here.
 
     Args:
         state: numpy array representing the state
         state_builder_type: string type of state builder
+        normalize: whether actions were normalized during build (default False)
 
     Returns:
         tuple: (prev_signal, curr_signal, last_action)
@@ -240,24 +252,24 @@ def extract_state_components(state, state_builder_type):
         last_action = int(state[2])
 
     elif state_builder_type == "signal_history_action" or state_builder_type == "signal_history_quadrant":
-        # Format: [signal_0, action_0, gradient_1, action_1, ..., gradient_k]
+        # Format: [signal_0, action_0[/40], gradient_1, action_1[/40], ..., gradient_k]
+        action_scale = 40.0 if normalize else 1.0
         curr_signal = float(state[0])
-        last_action = state[1]  # Default to first action in history
+        last_action = int(round(float(state[1]) * action_scale))
         # Add all gradients to get current signal
         # print(f'Components : {[round(float(x), 2) if i%2==0 else int(x) for i, x in enumerate(state)]}')
         for i in range(2, len(state), 2):
             if i < len(state):
                 curr_signal += float(state[i])
-                # last_action = int(state[i+1]) if (i + 1) < len(state) else last_action
             else:
                 print(f'Warning: Expected gradient at index {i} but state length is {len(state)}')
         # print('last action before quadrant check:', last_action)
         if state_builder_type == "signal_history_action":
-            prev_signal = curr_signal - float(state[-1])  # First gradient in history
-            last_action = int(state[-2])  # Last action in history
+            prev_signal = curr_signal - float(state[-1])  # Last gradient in history
+            last_action = int(round(float(state[-2]) * action_scale))  # Last action in history
         else:
             prev_signal = curr_signal - float(state[-2])  # Last gradient before quadrant
-            last_action = int(state[-3])  # Last action before quadrant
+            last_action = int(round(float(state[-3]) * action_scale))  # Last action before quadrant
         # print(round(prev_signal, 4), round(curr_signal, 4), last_action)
     else:
         # Fallback: assume [prev_signal, curr_signal, action, ...]

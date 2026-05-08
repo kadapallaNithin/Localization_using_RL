@@ -4,7 +4,7 @@ from .simple_agents import GradientBasedAgent, ManualAgent, UniformSearchAgent
 from .supervised import SupervisedAgent
 # from agents.belief_space_mpc import BeliefSpaceMPCAgent
 
-def build_agent(cfg, state_dim, action_dim, env_size, state_builder_type="signal_action_quadrant"):
+def build_agent(cfg, state_dim, action_dim, env_size, state_builder_type="signal_action_quadrant", normalize=False):
     t = cfg["type"]
     p = cfg.get("params", {})
 
@@ -33,7 +33,7 @@ def build_agent(cfg, state_dim, action_dim, env_size, state_builder_type="signal
         )
 
     if t == "Grad":
-        return GradientBasedAgent(action_dim, state_builder_type=state_builder_type, **p)
+        return GradientBasedAgent(action_dim, state_builder_type=state_builder_type, normalize=normalize, **p)
     elif t == "Supervised":
         # `experiment.py` injects `params.path` for where to save/load the model.
         # For supervised, we propagate it to the *student* (the thing that actually learns).

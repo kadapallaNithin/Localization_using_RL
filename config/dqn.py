@@ -38,6 +38,7 @@ EXPERIMENT_CONFIG["experiment"]["print_interval"] = 1000 if episodes > 1000 else
 # EXPERIMENT_CONFIG["state"]["type"] = 'signal_action_quadrant'
 EXPERIMENT_CONFIG["state"]["type"] = 'signal_history_quadrant'
 EXPERIMENT_CONFIG["state"]["history_length"] = 5
+EXPERIMENT_CONFIG["state"]["normalize"] = True   # scales actions→[0,1], quadrant→[0,1]
 # EXPERIMENT_CONFIG["reward"] = {
 #     "type": "sparse_find",
 #     "params": {

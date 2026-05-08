@@ -79,6 +79,7 @@ def build_compare_config(agent, variable, value, episodes):
     elif agent == "DQN":
         cfg["state"]["type"] = "signal_history_quadrant"
         cfg["state"]["history_length"] = 5
+        cfg["state"]["normalize"] = True   # must match training config
 
     return cfg
 

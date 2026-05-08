@@ -95,18 +95,20 @@ class UniformSearchAgent(Agent):
 
 # ================= GRADIENT-BASED (HILL CLIMBING) AGENT =================
 class GradientBasedAgent(Agent):
-    def __init__(self, action_dim, n_speed_levels=1, speed_factor=1.0, state_builder_type="signal_action_quadrant", path=None):
+    def __init__(self, action_dim, n_speed_levels=1, speed_factor=1.0, state_builder_type="signal_action_quadrant", normalize=False, path=None):
         """
         Hill climbing: move in direction that increases signal intensity.
         Args:
             action_dim (int): total number of actions (8 × n_speed_levels)
             n_speed_levels (int): number of speed levels
             state_builder_type (str): type of state builder (for proper state component extraction)
+            normalize (bool): must match cfg["state"]["normalize"] so action indices are recovered correctly
         """
         self.action_dim = action_dim
         self.n_speed_levels = n_speed_levels
         self.speed_factor = speed_factor
         self.state_builder_type = state_builder_type
+        self.normalize = normalize
         self.prev_pos = None
         self.prev_signal = None
         self.last_action = None
@@ -124,7 +126,7 @@ class GradientBasedAgent(Agent):
 
         # Extract state components using the getter function
         prev_signal, curr_signal, last_action = extract_state_components(
-            state, self.state_builder_type
+            state, self.state_builder_type, normalize=self.normalize
         )
 
         # Continue in same direction if signal improved

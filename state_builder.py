@@ -95,8 +95,11 @@ class SignalHistoryActionState(StateBuilder):
         # Size: 1 + 1 + (history_length - 1) * 2 + 1 = history_length * 2 + 1
         state_size = history_length * 2 + 1
         low = np.full(state_size, -np.inf, dtype=np.float32)
-        low[::2] = 0.0  # Signals and gradients have min 0 (or -1 for gradients)
-        low[1::2] = 0    # Actions have min 0
+        low[::2] = 0.0  # signals/gradients ≥ 0 (gradients can be negative, so -inf is fine there)
+        if self.normalize:
+            low[1::2] = -1.0  # no-op encoded as -1.0; movement actions in [0, 1]
+        else:
+            low[1::2] = 0     # raw action range starts at 0
 
         high = np.full(state_size, 1.0, dtype=np.float32)
         if not self.normalize:
@@ -122,10 +125,14 @@ class SignalHistoryActionState(StateBuilder):
         # Add first signal
         state.append(float(signal_list[0]))
 
-        # Interleave actions and gradients; normalize actions to [0,1] when configured
-        action_scale = 40.0 if self.normalize else 1.0
+        # Interleave actions and gradients
         for i in range(len(action_list)):
-            state.append(float(action_list[i]) / action_scale)
+            a = float(action_list[i])
+            if self.normalize:
+                # no-op (40) → -1.0 (distinct sentinel); movement (0-39) → [0, 1]
+                state.append(-1.0 if a >= 40.0 else a / 39.0)
+            else:
+                state.append(a)
             if i + 1 < len(signal_list):
                 gradient = float(signal_list[i + 1] - signal_list[i])
                 state.append(gradient)
@@ -252,10 +259,15 @@ def extract_state_components(state, state_builder_type, normalize=False):
         last_action = int(state[2])
 
     elif state_builder_type == "signal_history_action" or state_builder_type == "signal_history_quadrant":
-        # Format: [signal_0, action_0[/40], gradient_1, action_1[/40], ..., gradient_k]
-        action_scale = 40.0 if normalize else 1.0
+        # Format: [signal_0, action_0[encoded], gradient_1, action_1[encoded], ..., gradient_k]
+        # With normalize=True: no-op→-1.0, movement (0-39)→val/39; denorm inverts that.
+        def _denorm(val):
+            if not normalize:
+                return int(val)
+            return 40 if val < 0 else int(round(val * 39.0))
+
         curr_signal = float(state[0])
-        last_action = int(round(float(state[1]) * action_scale))
+        last_action = _denorm(float(state[1]))
         # Add all gradients to get current signal
         # print(f'Components : {[round(float(x), 2) if i%2==0 else int(x) for i, x in enumerate(state)]}')
         for i in range(2, len(state), 2):
@@ -266,10 +278,10 @@ def extract_state_components(state, state_builder_type, normalize=False):
         # print('last action before quadrant check:', last_action)
         if state_builder_type == "signal_history_action":
             prev_signal = curr_signal - float(state[-1])  # Last gradient in history
-            last_action = int(round(float(state[-2]) * action_scale))  # Last action in history
+            last_action = _denorm(float(state[-2]))        # Last action in history
         else:
             prev_signal = curr_signal - float(state[-2])  # Last gradient before quadrant
-            last_action = int(round(float(state[-3]) * action_scale))  # Last action before quadrant
+            last_action = _denorm(float(state[-3]))        # Last action before quadrant
         # print(round(prev_signal, 4), round(curr_signal, 4), last_action)
     else:
         # Fallback: assume [prev_signal, curr_signal, action, ...]

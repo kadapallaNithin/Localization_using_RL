@@ -1,5 +1,7 @@
 from config.base import get_config
 EXPERIMENT_CONFIG = get_config()
+DQN_MODEL_PATH = "model.pth"  # canonical path shared with compare_agents.py
+
 EXPERIMENT_CONFIG.update({
     "agent": {
         "type": "DQN",
@@ -15,6 +17,7 @@ EXPERIMENT_CONFIG.update({
             "eps_min": 0.002,
             "tau": 5e-06,
             "load_if_exists": True,
+            "path": DQN_MODEL_PATH,  # overrides experiment.py setdefault
         },
     },
 })

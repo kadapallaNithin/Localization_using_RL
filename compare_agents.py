@@ -5,6 +5,7 @@ import json
 import uuid, os
 from copy import deepcopy
 from config.base import get_config
+from config.dqn import DQN_MODEL_PATH
 
 run_id = None
 
@@ -12,7 +13,7 @@ AGENT_PARAMS = {
     "Q-learning": {
         "eps_min": 2e-3,
         "eps_start": 2e-3,
-        "tau": 0.0,
+        # tau omitted: end_episode is never called in eval mode (training=False)
         "load_if_exists": os.path.exists("qlearning.pkl"),
         "path": "qlearning.pkl",
     },
@@ -26,9 +27,9 @@ AGENT_PARAMS = {
         "target_update_freq": 100,
         "eps_start": 0.002,
         "eps_min": 0.002,
-        "tau": 0.0,
-        "load_if_exists": os.path.exists("model.pth"),
-        "path": "model.pth",
+        # tau omitted: end_episode is never called in eval mode (training=False)
+        "load_if_exists": os.path.exists(DQN_MODEL_PATH),
+        "path": DQN_MODEL_PATH,
     },
     "Uniform": {},
     "Grad": {},

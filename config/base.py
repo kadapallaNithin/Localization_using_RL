@@ -20,8 +20,17 @@ def get_config():
                 "dwell_time": 0.020,
             },
             "sensor": {
-                "type": "radiation",
-                "noise_std": 0.02,
+                # Noise model options:
+                #   none         : no noise
+                #   gaussian     : additive N(0, gaussian_std)   — simple baseline
+                #   poisson      : shot noise (physically correct for photon counting)
+                #   multiplicative: noise ∝ signal level (RF shadowing / gain uncertainty)
+                #   composite    : Poisson + additive Gaussian (most realistic)
+                "noise": {
+                    "model": "composite",
+                    "gaussian_std": 0.005,       # electronics noise floor
+                    "multiplicative_std": 0.0,   # fractional gain uncertainty (0 = off)
+                },
             },
         },
 

@@ -1,6 +1,6 @@
 
 from rewards import build_reward
-from sensors import RadiationSensor
+from sensors import build_sensor
 from smo.observer import build_observer
 from state_builder import build_state
 from uav_env import SimUAV, UAVEnv
@@ -9,9 +9,7 @@ from uav_env import SimUAV, UAVEnv
 def build_env(cfg):
     env_cfg = cfg["environment"]
 
-    sensor = RadiationSensor(
-        noise_std=env_cfg["sensor"].get("noise_std")
-    )
+    sensor = build_sensor(env_cfg["sensor"])
     if env_cfg["sensor"].get("record_readings", False):
         readings = {
             "true_readings": [],

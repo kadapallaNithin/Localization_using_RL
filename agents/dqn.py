@@ -92,8 +92,27 @@ class DQNAgent(QAgent):
         if np.random.rand() < self.epsilon:
             return np.random.randint(self.action_dim)
         state_tensor = torch.tensor(state, dtype=torch.float32).to(self.device)
-        q_values = self.q_network(state_tensor)
+        with torch.no_grad():
+            q_values = self.q_network(state_tensor)
         return torch.argmax(q_values).item()
+
+    def act_batch(self, states):
+        states = np.asarray(states, dtype=np.float32)
+        actions = np.random.randint(self.action_dim, size=len(states))
+        greedy_mask = np.random.rand(len(states)) >= self.epsilon
+        if np.any(greedy_mask):
+            state_tensor = torch.tensor(states[greedy_mask], dtype=torch.float32).to(self.device)
+            with torch.no_grad():
+                q_values = self.q_network(state_tensor)
+            actions[greedy_mask] = torch.argmax(q_values, dim=1).cpu().numpy()
+        return actions.tolist()
+
+    def update_batch(self, transitions):
+        for transition in transitions:
+            self.replay_buffer.add(transition)
+            self.step_count += 1
+            if len(self.replay_buffer) > self.min_replay_size and self.step_count % self.update_every == 0:
+                self.learn()
 
 
     def update(self, state, action, reward, next_state, done):
@@ -172,6 +191,28 @@ class DQNWrapperAgent(Agent):
 
     def update(self, *args):
         return self.dqn.update(*args)
+
+    def act_batch(self, states):
+        actions = np.array(self.dqn.act_batch(states))
+        random_mask = actions == self.action_dim
+        if np.any(random_mask):
+            actions[random_mask] = np.random.randint(0, self.action_dim, size=np.sum(random_mask))
+        return actions.tolist()
+
+    def update_batch(self, transitions):
+        return self.dqn.update_batch(transitions)
+
+    def end_episode(self):
+        return self.dqn.end_episode()
+
+    def print_intvl(self, *args, **kwargs):
+        return self.dqn.print_intvl(*args, **kwargs)
+
+    def save(self, *args, **kwargs):
+        return self.dqn.save(*args, **kwargs)
+
+    def load(self, *args, **kwargs):
+        return self.dqn.load(*args, **kwargs)
     
     def maybe_learn(self, *args, **kwargs):
         return self.dqn.maybe_learn(*args, **kwargs)

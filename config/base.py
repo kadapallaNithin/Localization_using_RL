@@ -9,6 +9,7 @@ def get_config():
             "pause_interval":0.0001,
             "save_dir": "results/",
             "print_interval":100,
+            "parallel_envs": 1,
         },
 
         "environment": {
@@ -60,4 +61,3 @@ def get_config():
             "params": {},
         },
     }
-

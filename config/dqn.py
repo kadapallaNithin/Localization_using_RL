@@ -34,6 +34,7 @@ else:
     EXPERIMENT_CONFIG["agent"]["params"]["tau"] = 5/episodes
 EXPERIMENT_CONFIG["experiment"]["episodes"] = episodes
 EXPERIMENT_CONFIG["experiment"]["print_interval"] = 1000 if episodes > 1000 else 100
+EXPERIMENT_CONFIG["experiment"]["parallel_envs"] = 4
 # EXPERIMENT_CONFIG["experiment"]["render"] = True
 # EXPERIMENT_CONFIG["state"]["type"] = 'signal_action_quadrant'
 EXPERIMENT_CONFIG["state"]["type"] = 'signal_history_quadrant'
@@ -47,5 +48,4 @@ EXPERIMENT_CONFIG["state"]["history_length"] = 5
 #         # "delay_penalty": 0.2,
 #     },
 # }
-
 

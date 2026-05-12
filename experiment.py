@@ -1,6 +1,7 @@
 import os
 import json
 import numpy as np
+from concurrent.futures import ThreadPoolExecutor
 from agents.factory import build_agent
 from env import build_env
 # from episode_handler import load_episode_initializations
@@ -83,6 +84,123 @@ class Metrics:
             window=100,
         )
 
+def _reset_parallel_slot(env, cfg, episode_idx, episode_inits):
+    expt_cfg = cfg["experiment"]
+    if episode_inits is not None:
+        state, info = env.reset(options=episode_inits[episode_idx])
+    else:
+        state, info = env.reset(seed=expt_cfg["seed"] + episode_idx)
+
+    start_pos = np.array(info["pos"])
+    return {
+        "episode": episode_idx,
+        "state": state,
+        "total_reward": 0.0,
+        "steps": 0,
+        "start_pos": start_pos,
+        "prev_pos": start_pos.copy(),
+        "goal_pos": np.array(env.source_pos),
+        "cumulative_distance": 0.0,
+    }
+
+
+def _step_parallel_env(args):
+    env, action = args
+    return env.step(int(action))
+
+
+def _run_parallel_dqn_training(cfg, agent, first_env, episode_inits=None):
+    expt_cfg = cfg["experiment"]
+    episodes = expt_cfg["episodes"]
+    max_steps = expt_cfg["max_steps"]
+    parallel_envs = max(1, min(int(expt_cfg.get("parallel_envs", 1)), episodes))
+    print_intvl = expt_cfg["print_interval"]
+
+    envs = [first_env] + [build_env(cfg) for _ in range(parallel_envs - 1)]
+    slots = [None] * parallel_envs
+    metrics = Metrics()
+    next_episode = 0
+    completed = 0
+
+    for i in range(parallel_envs):
+        slots[i] = _reset_parallel_slot(envs[i], cfg, next_episode, episode_inits)
+        next_episode += 1
+
+    print(f"Using {parallel_envs} parallel DQN environments.")
+    try:
+        with ThreadPoolExecutor(max_workers=parallel_envs) as executor:
+            while completed < episodes:
+                active_indices = [i for i, slot in enumerate(slots) if slot is not None]
+                states = [slots[i]["state"] for i in active_indices]
+                if hasattr(agent, "act_batch"):
+                    actions = agent.act_batch(states)
+                else:
+                    actions = [agent.act(state) for state in states]
+
+                results = list(executor.map(
+                    _step_parallel_env,
+                    [(envs[i], actions[j]) for j, i in enumerate(active_indices)]
+                ))
+                results_by_idx = dict(zip(active_indices, results))
+
+                transitions = []
+                for j, i in enumerate(active_indices):
+                    slot = slots[i]
+                    next_state, reward, done, truncated, info = results_by_idx[i]
+
+                    new_pos = np.array(info["pos"])
+                    slot["cumulative_distance"] += np.linalg.norm(new_pos - slot["prev_pos"])
+                    slot["prev_pos"] = new_pos
+                    slot["total_reward"] += reward
+                    slot["steps"] += 1
+
+                    transitions.append((slot["state"], actions[j], reward, next_state, done))
+                    slot["state"] = next_state
+
+                if hasattr(agent, "update_batch"):
+                    agent.update_batch(transitions)
+                else:
+                    for transition in transitions:
+                        agent.update(*transition)
+
+                for i in active_indices:
+                    slot = slots[i]
+                    done = bool(results_by_idx[i][2])
+                    truncated = bool(results_by_idx[i][3])
+                    if not (done or truncated or slot["steps"] >= max_steps):
+                        continue
+
+                    if hasattr(agent, "end_episode"):
+                        agent.end_episode()
+
+                    start_to_goal = np.linalg.norm(slot["goal_pos"] - slot["start_pos"])
+                    norm_dist = slot["cumulative_distance"] / max(start_to_goal, 1e-6)
+                    total_reward = slot["total_reward"]
+                    steps = slot["steps"]
+                    metrics.append(total_reward, steps, done, norm_dist)
+                    completed += 1
+
+                    if completed % print_intvl == 0:
+                        agent.print_intvl(end=' | ')
+                        print(
+                            f"Epi {completed:5d} | "
+                            f"Reward {total_reward:7.2f} | "
+                            f"Steps {steps:3d} | ",
+                            end=''
+                        )
+                        metrics.print_intvl(print_intvl)
+
+                    if next_episode < episodes:
+                        slots[i] = _reset_parallel_slot(envs[i], cfg, next_episode, episode_inits)
+                        next_episode += 1
+                    else:
+                        slots[i] = None
+    finally:
+        for env in envs[1:]:
+            env.close()
+
+    return metrics
+
 
 def run_experiment(cfg, episode_init_csv=None):
     # ------------------ setup ------------------
@@ -135,6 +253,22 @@ def run_experiment(cfg, episode_init_csv=None):
 
 
     print(f"{cfg['experiment']['name']} {episodes}")
+
+    parallel_envs = int(expt_cfg.get("parallel_envs", 1))
+    use_parallel_dqn = (
+        training
+        and parallel_envs > 1
+        and not render
+        and cfg["agent"]["type"] in {"DQN", "DQNR"}
+    )
+    if use_parallel_dqn:
+        metrics = _run_parallel_dqn_training(cfg, agent, env, episode_inits)
+        env.close()
+        metrics.save(cfg)
+        metrics.plot(cfg)
+        agent.save()
+        print("Experiment finished.\n")
+        return metrics.to_dict(cfg)
 
     # ------------------ training loop ------------------
     for ep in range(episodes):

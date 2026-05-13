@@ -81,23 +81,32 @@ class UAVInterface(ABC):
 
 # ========= Simple Simulated UAV =========
 class SimUAV(UAVInterface):
-    def __init__(self, speed_factor=5, size=200):
+    def __init__(self, speed_factor=5, size=200, max_turn_rate=None):
+        """
+        max_turn_rate: maximum heading change per step in radians.
+                       None (default) means unlimited — any direction is reachable instantly.
+                       Example: np.pi/2 limits turns to 90 degrees per step.
+        """
         self.speed_factor = speed_factor
         self.pos = None
-        self.head = None
+        self.head = None  # stored in radians
         self.size = size
         self._time = 0
         self.dt = 1
+        self.max_turn_rate = max_turn_rate
 
     def reset(self, area_size=None, pos=None, head=None):
         if pos is None:
             self.pos = [np.random.randint(0, self.size), np.random.randint(0, self.size)]
         else:
-            self.pos = pos
+            self.pos = list(pos)
+        # head accepted as a direction index (0-7) or radians float
         if head is None:
-            self.head = np.random.randint(0, 8)
+            self.head = np.random.randint(0, 8) * (np.pi / 4)
+        elif isinstance(head, (int, np.integer)):
+            self.head = head * (np.pi / 4)
         else:
-            self.head = head
+            self.head = float(head)
         self._time = 0
         return self.pos
 
@@ -105,11 +114,20 @@ class SimUAV(UAVInterface):
         # no_op action does nothing
         if action == 40:
             return self.pos
-        
+
         speed = action // 8
         direction = action % 8
         v = self.speed_factor * (speed + 1)
-        angle = (np.pi / 4) * direction
+        desired_angle = (np.pi / 4) * direction
+
+        if self.max_turn_rate is not None and self.head is not None:
+            # Shortest signed angular distance on the circle
+            diff = (desired_angle - self.head + np.pi) % (2 * np.pi) - np.pi
+            diff = np.clip(diff, -self.max_turn_rate, self.max_turn_rate)
+            angle = self.head + diff
+        else:
+            angle = desired_angle
+
         x, y = self.pos
         x += v * np.cos(angle) * self.dt
         y += v * np.sin(angle) * self.dt
@@ -119,7 +137,7 @@ class SimUAV(UAVInterface):
         elif x > self.size:
             x = self.size
         if y < 0:
-            y = 0 
+            y = 0
         elif y > self.size:
             y = self.size
 

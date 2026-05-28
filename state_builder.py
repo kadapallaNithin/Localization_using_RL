@@ -165,6 +165,52 @@ class SignalHistoryQuadrantState(SignalHistoryActionState):
         return state
 
 
+class SignalHistoryQuadrantHeadingState(SignalHistoryQuadrantState):
+    """
+    Fixes the action-label corruption that occurs under a max_turn_rate constraint:
+    instead of storing the *requested* action index (0-40) in history slots, stores
+    the *actual* post-step heading (normalized by π to [-1, 1]) from env.heading_history.
+    This way every (gradient, heading) pair in the state reflects true dynamics.
+
+    Also appends (sin, cos) of the current heading so the network can predict the
+    turn-constrained effect of each candidate action at decision time.
+
+    State format: [signal_0, head_0, Δ1, head_1, …, Δk, quadrant, sin(h), cos(h)]
+    where head_i = actual_heading_after_step_i / π  ∈ [-1, 1]
+    """
+    def observation_space(self, history_length=3):
+        # Size = history_length * 2 + 4  (same total as before)
+        state_size = history_length * 2 + 4
+        low = np.full(state_size, -1.0, dtype=np.float32)
+        low[0] = 0.0    # first signal ∈ [0, 1]
+        low[-3] = 0.0   # quadrant ∈ [0, 3]
+        high = np.full(state_size, 1.0, dtype=np.float32)
+        high[-3] = 3.0  # quadrant ∈ [0, 3]
+        return low, high
+
+    def build(self, mt0, mt1, action, env, signal_history=None, action_history=None):
+        heading_history = getattr(env, 'heading_history', None)
+        if signal_history is None or heading_history is None:
+            # fallback: parent uses action_history (less accurate under turn constraint)
+            return super().build(mt0, mt1, action, env, signal_history, action_history)
+
+        signal_list = list(signal_history)
+        heading_list = list(heading_history)
+
+        state = [float(signal_list[0])]
+        for i in range(len(heading_list)):
+            state.append(float(heading_list[i]))            # actual heading / π ∈ [-1, 1]
+            if i + 1 < len(signal_list):
+                state.append(float(signal_list[i + 1] - signal_list[i]))  # gradient
+
+        max_state_size = env.history_length * 2 + 1
+        base = np.array(state[:max_state_size], dtype=np.float32)
+
+        w = env.uav.get_quadrant(env.size)
+        heading = env.uav.get_head()
+        return np.concatenate([base, [w, np.sin(heading), np.cos(heading)]]).astype(np.float32)
+
+
 def build_state(cfg):
     t = cfg["type"]
 
@@ -190,7 +236,12 @@ def build_state(cfg):
     elif t == "signal_history_quadrant":
         history_length = cfg.get("history_length", 3)
         state_builder = SignalHistoryQuadrantState()
-        # Store history_length as attribute for later use
+        state_builder.history_length = history_length
+        return state_builder
+
+    elif t == "signal_history_quadrant_heading":
+        history_length = cfg.get("history_length", 3)
+        state_builder = SignalHistoryQuadrantHeadingState()
         state_builder.history_length = history_length
         return state_builder
 
@@ -239,22 +290,25 @@ def extract_state_components(state, state_builder_type):
         curr_signal = prev_signal + delta
         last_action = int(state[2])
 
-    elif state_builder_type == "signal_history_action" or state_builder_type == "signal_history_quadrant":
-        # Format: [signal_0, action_0, gradient_1, action_1, ..., gradient_k]
+    elif state_builder_type in ("signal_history_action", "signal_history_quadrant", "signal_history_quadrant_heading"):
+        # Format: [signal_0, action_0, gradient_1, action_1, ..., gradient_k, (quadrant)?, (sin, cos)?]
         curr_signal = float(state[0])
         last_action = state[1]  # Default to first action in history
-        # Add all gradients to get current signal
-        # print(f'Components : {[round(float(x), 2) if i%2==0 else int(x) for i, x in enumerate(state)]}')
-        for i in range(2, len(state), 2):
-            if i < len(state):
-                curr_signal += float(state[i])
-                # last_action = int(state[i+1]) if (i + 1) < len(state) else last_action
-            else:
-                print(f'Warning: Expected gradient at index {i} but state length is {len(state)}')
+        # Determine how many tail elements are non-history (quadrant=1, +sin/cos=2)
+        tail = 3 if state_builder_type == "signal_history_quadrant_heading" else (
+               1 if state_builder_type == "signal_history_quadrant" else 0)
+        loop_end = len(state) - tail
+        for i in range(2, loop_end, 2):
+            curr_signal += float(state[i])
         # print('last action before quadrant check:', last_action)
         if state_builder_type == "signal_history_action":
-            prev_signal = curr_signal - float(state[-1])  # First gradient in history
+            prev_signal = curr_signal - float(state[-1])  # Last gradient in history
             last_action = int(state[-2])  # Last action in history
+        elif state_builder_type == "signal_history_quadrant_heading":
+            # Tail: [..., gradient_k, quadrant, sin(heading), cos(heading)]
+            # History slots now hold actual headings (float in [-1,1]), not action indices.
+            prev_signal = curr_signal - float(state[-4])  # last gradient before quadrant+sin+cos
+            last_action = float(state[-5])  # last actual heading / π (not an action index)
         else:
             prev_signal = curr_signal - float(state[-2])  # Last gradient before quadrant
             last_action = int(state[-3])  # Last action before quadrant

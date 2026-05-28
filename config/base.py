@@ -45,8 +45,8 @@ def get_config():
             "params": {
                 "found_reading": 0.95,
                 "found_reward": 100.0,
-                "delay_penalty": 0.0,
-                # "delay_penalty": 0.2,
+                # "delay_penalty": 0.0,
+                "delay_penalty": 0.002,
             },
         },
 

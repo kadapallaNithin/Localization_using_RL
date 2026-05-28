@@ -38,4 +38,5 @@ def build_env(cfg):
         observer=build_observer(env_cfg.get("observer")),
         history_length=history_length,
         readings=readings,
+        positions_file=env_cfg.get("initial_positions_file"),
     )

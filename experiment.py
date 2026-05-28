@@ -63,7 +63,7 @@ class Metrics:
         file_path = get_file_path(cfg, "metrics.json")
         with open(file_path, "w") as f:
             json.dump(metrics, f, indent=2)
-        print(f"Results saved to: {file_path}")
+        # print(f"Results saved to: {file_path}")
 
     def to_dict(self, cfg=None):
         metrics = {
@@ -202,7 +202,7 @@ def _run_parallel_dqn_training(cfg, agent, first_env, episode_inits=None):
     return metrics
 
 
-def run_experiment(cfg, episode_init_csv=None):
+def run_experiment(cfg, episode_init_csv=None, episode_inits=None):
     # ------------------ setup ------------------
     expt_cfg = cfg["experiment"]
     set_seed(expt_cfg["seed"])
@@ -211,7 +211,6 @@ def run_experiment(cfg, episode_init_csv=None):
     #     show_colorbar=expt_cfg.get("pf_viz_colorbar", True)
     # )
 
-    episode_inits = None
     # if episode_init_csv is not None:
     #     episode_inits = load_episode_initializations(episode_init_csv)
 
@@ -267,7 +266,7 @@ def run_experiment(cfg, episode_init_csv=None):
         metrics.save(cfg)
         metrics.plot(cfg)
         agent.save()
-        print("Experiment finished.\n")
+        # print("Experiment finished.\n")
         return metrics.to_dict(cfg)
 
     # ------------------ training loop ------------------
@@ -277,6 +276,9 @@ def run_experiment(cfg, episode_init_csv=None):
             state, info = env.reset(options=episode_inits[ep])
         else:
             state, info = env.reset(seed=expt_cfg["seed"] + ep)
+        # state, info = env.reset(options={
+            
+        # })
 
         done = truncated = False
         total_reward = 0.0
@@ -288,12 +290,23 @@ def run_experiment(cfg, episode_init_csv=None):
         goal_pos = np.array(env.source_pos)
         cumulative_distance = 0.0
 
+        def _render(render_state=0):
+            belief = agent.get_belief() if hasattr(agent, "get_belief") else None
+            env.render(
+                alpha=state[0] if len(state) > 0 else 0.3,
+                state=render_state,
+                pause_interval=expt_cfg.get("pause_interval", 0.01),
+                name=expt_cfg["name"],
+                belief_visualizer=pf_viz,
+                belief=belief,
+            )
+
+        if render:
+            _render()  # show initial position before first action
+
         while not (done or truncated):
             if hasattr(agent, "set_uav_position"):
                 agent.set_uav_position(info["pos"])
-            # if (ep//100)%2 == 0:
-            #     action = grad_agent.act(state)
-            # else:
             action = agent.act(state)
             next_state, reward, done, truncated, info = env.step(action)
 
@@ -304,30 +317,13 @@ def run_experiment(cfg, episode_init_csv=None):
 
             if training:
                 agent.update(state, action, reward, next_state, done) # or truncated
-            # if hasattr(agent, "_last_truncated"):
-            #     # Provide time-limit info for debugging whether Q-learning is bootstrapping incorrectly.
-            #     agent._last_truncated = bool(truncated)
-            # # Treat time-limit truncation as terminal for Q-target bootstrapping.
-            # # This avoids incorrect value propagation past an episode boundary.
-            # agent.update(state, action, reward, next_state, done or truncated)
-            # agent.maybe_learn()
 
             state = next_state
             total_reward += reward
             steps += 1
-            # done = True
 
             if render:
-                render_state = 1 if done else (-1 if truncated else 0)
-                belief = agent.get_belief() if hasattr(agent, "get_belief") else None
-                env.render(
-                    alpha=state[0] if len(state) > 0 else 0.3,
-                    state=render_state,
-                    pause_interval=expt_cfg.get("pause_interval", 0.01),
-                    name=expt_cfg["name"],
-                    belief_visualizer=pf_viz,
-                    belief=belief,
-                )
+                _render(1 if done else (-1 if truncated else 0))
 
             if steps >= max_steps:
                 break
@@ -384,7 +380,7 @@ def run_experiment(cfg, episode_init_csv=None):
     if training:
         agent.save()
 
-    print("Experiment finished.\n")
+    # print("Experiment finished.\n")
     return metrics.to_dict(cfg)
 
 if __name__ == "__main__":
@@ -400,10 +396,13 @@ if __name__ == "__main__":
     # from config.base import get_config
     # EXPERIMENT_CONFIG = get_config()
     # EXPERIMENT_CONFIG['agent']['type'] = 'Grad'
-    # EXPERIMENT_CONFIG['state']['type'] = 'signal_history_quadrant'
+    # EXPERIMENT_CONFIG["experiment"]["episodes"] = episodes = 6_000
+    # # EXPERIMENT_CONFIG['state']['type'] = 'signal_history_quadrant'
+    # EXPERIMENT_CONFIG["state"]["type"] = 'signal_history_quadrant'
     # EXPERIMENT_CONFIG["experiment"]["name"] = "grad"
 
     # from config.manual import EXPERIMENT_CONFIG
+    # experiments.append((deepcopy(EXPERIMENT_CONFIG), [0.0]))
 
     # from config.q_learning import EXPERIMENT_CONFIG
     # experiments.append((deepcopy(EXPERIMENT_CONFIG), [0.02]))

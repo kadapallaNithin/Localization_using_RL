@@ -78,10 +78,12 @@ class UAVInterface(ABC):
         """Return quadrant index (0-3)."""
         pass
 
+def wrap_angle(angle):
+    return (angle + np.pi) % (2 * np.pi) - np.pi
 
 # ========= Simple Simulated UAV =========
 class SimUAV(UAVInterface):
-    def __init__(self, speed_factor=5, size=200, max_turn_rate=None):
+    def __init__(self, speed_factor=5, size=200, max_turn_rate=np.pi/2): #None
         """
         max_turn_rate: maximum heading change per step in radians.
                        None (default) means unlimited — any direction is reachable instantly.
@@ -94,6 +96,7 @@ class SimUAV(UAVInterface):
         self._time = 0
         self.dt = 1
         self.max_turn_rate = max_turn_rate
+        # print(self.max_turn_rate, "Max turn rate (radians/step)")
 
     def reset(self, area_size=None, pos=None, head=None):
         if pos is None:
@@ -113,6 +116,7 @@ class SimUAV(UAVInterface):
     def step(self, action: int):
         # no_op action does nothing
         if action == 40:
+            self.desired_pos = list(self.pos)
             return self.pos
 
         speed = action // 8
@@ -120,11 +124,20 @@ class SimUAV(UAVInterface):
         v = self.speed_factor * (speed + 1)
         desired_angle = (np.pi / 4) * direction
 
+        # Unconstrained desired position (what the agent asked for)
+        dx = np.cos(desired_angle) * v * self.dt
+        dy = np.sin(desired_angle) * v * self.dt
+        ox, oy = self.pos
+        self.desired_pos = [
+            np.clip(ox + dx, 0, self.size),
+            np.clip(oy + dy, 0, self.size),
+        ]
+
         if self.max_turn_rate is not None and self.head is not None:
-            # Shortest signed angular distance on the circle
+            # Shortest signed angular distance on the circle, wrapped to [-π, π]
             diff = (desired_angle - self.head + np.pi) % (2 * np.pi) - np.pi
             diff = np.clip(diff, -self.max_turn_rate, self.max_turn_rate)
-            angle = self.head + diff
+            angle = wrap_angle(self.head + diff)
         else:
             angle = desired_angle
 
@@ -188,6 +201,7 @@ class UAVEnv(gym.Env):
                  observer=None,
                  history_length=3,
                  readings=None,
+                 positions_file=None,
         ):
         super().__init__()
         self.size = size
@@ -200,7 +214,7 @@ class UAVEnv(gym.Env):
         self.state_builder = state_builder
         self.reward_fn = reward_fn
         self.observer = observer
-        print("Observer:", observer)
+        # print("Observer:", observer)
         self.history_length = history_length
         self.readings = readings
         self.no_op_action = 40  # Define no-op action index
@@ -213,6 +227,9 @@ class UAVEnv(gym.Env):
         self.signal_history = deque(maxlen=history_length + 1)
         # action_history stores actions: [action0, action1, ..., action_k-1]
         self.action_history = deque(maxlen=history_length)
+        # heading_history stores actual post-step headings normalized by π ∈ [-1, 1]
+        # (used by heading-aware state builders instead of requested action index)
+        self.heading_history = deque(maxlen=history_length)
 
         self.trajectory = []
         self.current_step = 0
@@ -222,6 +239,14 @@ class UAVEnv(gym.Env):
 
         self.fig, self.ax = None, None
 
+        # Predefined initial positions loaded from file (sequential cycling)
+        self._init_positions = []
+        self._init_pos_idx = 0
+        if positions_file is not None:
+            with open(positions_file) as f:
+                self._init_positions = json.load(f)
+            print(f"Loaded {len(self._init_positions)} predefined positions from {positions_file}")
+
     def _pad_history(self):
         # Pad signal history with zeros if not enough measurements
         while len(self.signal_history) < self.history_length + 1:
@@ -229,6 +254,9 @@ class UAVEnv(gym.Env):
         # Pad action history with no-op if not enough actions
         while len(self.action_history) < self.history_length:
             self.action_history.appendleft(self.no_op_action)
+        # Pad heading history with 0.0 (neutral heading)
+        while len(self.heading_history) < self.history_length:
+            self.heading_history.appendleft(0.0)
 
 
         # # Pad if necessary (in case we're at the beginning of episode)
@@ -249,6 +277,13 @@ class UAVEnv(gym.Env):
         super().reset(seed=seed)
         if options is None:
             options = {}
+
+        # Pull next predefined entry (wraps around); explicit options override
+        if self._init_positions and 'source_pos' not in options and 'uav_pos' not in options:
+            entry = self._init_positions[self._init_pos_idx % len(self._init_positions)]
+            self._init_pos_idx += 1
+            options = {**entry, **options}
+
         self.source_pos = options.get('source_pos', self._get_random_position())
         self.current_step = 0
         self.uav.reset(pos=options.get('uav_pos'), head=options.get('uav_head'))
@@ -265,6 +300,7 @@ class UAVEnv(gym.Env):
         # Clear histories
         self.signal_history.clear()
         self.action_history.clear()
+        self.heading_history.clear()
 
         mt0_meas = self.sensor.read(self._true_reading())
         if self.observer is not None:
@@ -280,9 +316,10 @@ class UAVEnv(gym.Env):
         action = options.get('action', self.action_space.sample())
         reset_info['action'] = action
         self.uav.step(action)
-        
-        # Add action to history
+
+        # Add action and actual post-step heading to histories
         self.action_history.append(action)
+        self.heading_history.append(self.uav.get_head() / np.pi)
         
         mt1_meas = self.sensor.read(self._true_reading())
         if self.observer is not None:
@@ -313,16 +350,18 @@ class UAVEnv(gym.Env):
             signal_history=self.signal_history, 
             action_history=self.action_history
         )
+        # print(reset_info)
         return obs, {'pos': self.uav.get_position(), 'reset':reset_info}
 
     def step(self, action):
         self.current_step += 1
         
-        # Add action to history
+        # Record requested action; heading recorded after step
         self.action_history.append(action)
-        
+
         mt0_meas = self.sensor.read(self._true_reading())
         self.uav.step(action)
+        self.heading_history.append(self.uav.get_head() / np.pi)  # actual heading after turn
         mt1_meas = self.sensor.read(self._true_reading())
 
         if self.observer is not None:
@@ -359,7 +398,8 @@ class UAVEnv(gym.Env):
         reward, terminated = self.reward_fn.compute(mt0, mt1, self.current_step, self.max_steps)
         self.trajectory.append({
             "pos": self.uav.get_position(),
-            "reward": reward
+            "reward": reward,
+            "desired_pos": getattr(self.uav, 'desired_pos', None),
         })
         # print('action', action)
         truncated = (self.current_step >= self.max_steps) and not terminated
@@ -386,6 +426,8 @@ class UAVEnv(gym.Env):
         # traj_x = traj[:, 0]
         # traj_y = traj[:, 1]
         traj = self.trajectory
+        if len(traj) == 0:
+            return
 
         positions = np.array([t["pos"] for t in traj])
         rewards = np.array([t["reward"] for t in traj])
@@ -411,8 +453,10 @@ class UAVEnv(gym.Env):
                 linewidth=2
             )
 
-        # arrows (optional, same color)
+        # arrows (optional, same color) — skip zero-length segments
         for i in range(1, len(traj_x), 5):
+            if traj_x[i] == traj_x[i-1] and traj_y[i] == traj_y[i-1]:
+                continue
             color = reward_to_rgb(rewards[i])
             self.ax.annotate(
                 '',
@@ -426,6 +470,16 @@ class UAVEnv(gym.Env):
                 )
             )
 
+        # grey markers for attempted (desired) positions when constrained by turn rate
+        for t in traj[1:]:
+            dp = t.get("desired_pos")
+            ap = t["pos"]
+            if dp is not None and (dp[0] != ap[0] or dp[1] != ap[1]):
+                self.ax.plot(
+                    [ap[0], dp[0]], [ap[1], dp[1]],
+                    color='grey', linewidth=1, linestyle='--', alpha=0.5, zorder=1
+                )
+                self.ax.scatter(dp[0], dp[1], c='grey', marker='x', s=30, alpha=0.6, zorder=2)
 
         # for i in range(1, len(traj_x), 5):  
             # plt.annotate('', xy=(traj_x[i], traj_y[i]), xytext=(traj_x[i-1], traj_y[i-1]),

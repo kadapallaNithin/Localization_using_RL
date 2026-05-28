@@ -1,28 +1,89 @@
 from .base import Agent
+import sys
 import numpy as np
 from state_builder import extract_state_components
 
+# ── raw single-keypress (Linux/macOS) ────────────────────────────────────────
+def _getch():
+    import tty, termios
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        ch = sys.stdin.read(1)
+        if ch == '\x1b':
+            nxt = sys.stdin.read(1)
+            if nxt == '[':
+                return '\x1b[' + sys.stdin.read(1)   # arrow key
+            return '\x1b'
+        return ch
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+# direction index → (arrow-symbol, compass-label)
+_DIR_LABEL = {0:'→E', 1:'↗NE', 2:'↑N', 3:'↖NW', 4:'←W', 5:'↙SW', 6:'↓S', 7:'↘SE'}
+
+# key → direction index
+_KEY_DIR = {
+    'd': 0, '\x1b[C': 0,   # East     (D / →)
+    'e': 1,                  # NE       (E)
+    'w': 2, '\x1b[A': 2,   # North    (W / ↑)
+    'q': 3,                  # NW       (Q)
+    'a': 4, '\x1b[D': 4,   # West     (A / ←)
+    'z': 5,                  # SW       (Z)
+    's': 6, '\x1b[B': 6,   # South    (S / ↓)
+    'c': 7,                  # SE       (C)
+}
+
 class ManualAgent(Agent):
+    """
+    Keyboard-driven agent.
+      Movement : WASD / arrow keys (4 cardinal) + Q E Z C (4 diagonals)
+      Speed     : 1–5  (default 2)
+      No-op     : Space or F
+      Quit      : X or Ctrl-C
+    """
     def __init__(self):
-        pass
+        self._speed = 1   # index 0–4
 
     def act(self, state):
+        self._print_hud(state)
         while True:
-            try:
-                x = input(state)
-                if x == 'q':
-                    exit()
-                x = int(x)
-                if 0 <= x and x < 41:
-                    return x
-            except ValueError as e:
-                pass
-            except Exception as e:
-                raise e
-            print(f'invalid input {x}. input a number between 0 and 40')
+            key = _getch()
+            if key in ('\x03', 'x'):          # Ctrl-C or x → quit
+                raise KeyboardInterrupt
+            if key in ('1','2','3','4','5'):   # change speed
+                self._speed = int(key) - 1
+                spd_bar = ''.join('█' if i == self._speed else '░' for i in range(5))
+                print(f'\r  Speed [{spd_bar}] {self._speed+1}/5   ', end='', flush=True)
+                continue
+            if key in (' ', 'f'):             # no-op
+                print(f'\r  · no-op                      ', end='', flush=True)
+                return 40
+            if key in _KEY_DIR:
+                direction = _KEY_DIR[key]
+                action = self._speed * 8 + direction
+                print(f'\r  {_DIR_LABEL[direction]}  spd={self._speed+1}  act={action}    ',
+                      end='', flush=True)
+                return action
+
+    def _print_hud(self, state):
+        sig = float(state[0]) if len(state) > 0 else 0.0
+        spd_bar = ''.join('█' if i == self._speed else '░' for i in range(5))
+        bar_len = int(sig * 20)
+        sig_bar = '█' * bar_len + '░' * (20 - bar_len)
+        print(f'\n  Signal [{sig_bar}] {sig:.4f}')
+        print(f'  Speed  [{spd_bar}] {self._speed+1}/5')
+        print('  Move: WASD/arrows · diag: QEZC · speed: 1-5 · noop: Space · quit: x')
+        print('  > ', end='', flush=True)
 
     def update(self, state, action, reward, next_state, done):
-        print(action, reward, done)
+        sig = float(next_state[0]) if len(next_state) > 0 else 0.0
+        status = '✓ FOUND' if done else f'reward={reward:+.2f}'
+        print(f'\r  {status}  signal={sig:.4f}                    ', end='', flush=True)
+
+    def save(self, *args, **kwargs): pass
+    def load(self, *args, **kwargs): pass
 
 class UniformSearchAgent(Agent):
     def __init__(self, area_size=200, sweep_step=3, path=None):

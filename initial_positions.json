@@ -1,0 +1,10 @@
+[{"uav_pos": [0, 0], "source_pos": [10, 10]},
+    {"uav_pos": [50, 5], "source_pos": [15, 150]},
+    {"uav_pos": [100, 0], "source_pos": [20, 100]},
+    {"uav_pos": [0, 100], "source_pos": [100, 20]},
+    {"uav_pos": [15, 50], "source_pos": [25, 15]},
+    {"uav_pos": [50, 15], "source_pos": [150, 25]},
+    {"uav_pos": [20, 0], "source_pos": [30, 100]},
+    {"uav_pos": [0, 200], "source_pos": [10, 30]},
+    {"uav_pos": [25, 50], "source_pos": [35, 150]}
+]

@@ -56,7 +56,7 @@ def build_compare_config(agent, variable, value, episodes):
         "training": False,
         "save_dir": f"run/{run_id}/experiments",
         "print_interval": max(1, episodes),
-        "render": False,
+        "render": True,
         "verbose": False,
     })
     cfg["environment"].update({
@@ -83,15 +83,30 @@ def build_compare_config(agent, variable, value, episodes):
     return cfg
 
 
+def generate_episode_inits(episodes, size, seed=0):
+    rng = np.random.default_rng(seed)
+    return [
+        {
+            'source_pos': rng.integers(0, size, size=2).tolist(),
+            'uav_pos': rng.integers(0, size, size=2).tolist(),
+            'uav_head': int(rng.integers(0, 8)),
+            'action': int(rng.integers(0, 40)),
+        }
+        for _ in range(episodes)
+    ]
+
+
 def evaluate_across_variable(variable, values, agents, episodes=30, save=True):
     results = {agent: {"steps": [], "ncd": [], "rewards":[], 'dones':[]} for agent in agents}
 
     os.makedirs('run', exist_ok=True)
     for value in values:
         print(f"\n=== Evaluating {variable}: {value} ===")
+        area_size = int(value) if variable == "area" else 200
+        episode_inits = generate_episode_inits(episodes, area_size, seed=21)
         for agent in agents:
             cfg = build_compare_config(agent, variable, value, episodes)
-            metrics = run_experiment(cfg)
+            metrics = run_experiment(cfg, episode_inits=episode_inits)
             avg_reward = float(np.mean(metrics["rewards"]))
             avg_steps = float(np.mean(metrics["steps"]))
             avg_ncd = float(np.mean(metrics["norm_dists"]))
@@ -171,8 +186,8 @@ if __name__ == "__main__":
     #     plot_performance('Source Intensity', source_intensities, results)
 
     num_runs = 1
-    num_episodes = 1000
-    # num_episodes = 1
+    # num_episodes = 100
+    num_episodes = 1
     save = True
     for _ in range(num_runs):
         run_id, save = 'temp', True

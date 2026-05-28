@@ -6,6 +6,7 @@ EXPERIMENT_CONFIG.update({
         "params": {
             "gamma": 0.99,
             "lr": 1e-3,
+            # "lr": 3e-4,
             "batch_size": 64,
             "buffer_capacity": 50_000,
             "min_replay_size": 10_000,
@@ -14,7 +15,8 @@ EXPERIMENT_CONFIG.update({
             "eps_start": 1.0,
             "eps_min": 0.002,
             "tau": 5e-06,
-            "load_if_exists": True,
+            "load_if_exists": False,
+            # "path": "model.pth",
         },
     },
 })
@@ -25,17 +27,21 @@ EXPERIMENT_CONFIG["experiment"]["name"] = "dqn"
 
 # EXPERIMENT_CONFIG["state"]["type"] = "signal_delta"
 # EXPERIMENT_CONFIG["reward"]["type"] = "improvement"
-EVAL = True
+max_steps = 200
+EVAL = False
 if EVAL:
-    episodes = 5000
+    max_steps = 200
+    episodes = 50
     EXPERIMENT_CONFIG["agent"]["params"]["tau"] = 1
+    EXPERIMENT_CONFIG["experiment"]["render"] = True
+    EXPERIMENT_CONFIG["environment"]["initial_positions_file"] = "initial_positions.json"
 else:
     episodes = 1000_000
     EXPERIMENT_CONFIG["agent"]["params"]["tau"] = 5/episodes
+    # EXPERIMENT_CONFIG["experiment"]["parallel_envs"] = 4
 EXPERIMENT_CONFIG["experiment"]["episodes"] = episodes
+# EXPERIMENT_CONFIG["experiment"]["max_steps"] = max_steps
 EXPERIMENT_CONFIG["experiment"]["print_interval"] = 1000 if episodes > 1000 else 100
-EXPERIMENT_CONFIG["experiment"]["parallel_envs"] = 4
-# EXPERIMENT_CONFIG["experiment"]["render"] = True
 # EXPERIMENT_CONFIG["state"]["type"] = 'signal_action_quadrant'
 EXPERIMENT_CONFIG["state"]["type"] = 'signal_history_quadrant'
 EXPERIMENT_CONFIG["state"]["history_length"] = 5

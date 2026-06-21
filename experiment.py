@@ -10,6 +10,7 @@ from plot import plot_metrics
 from pprint import pprint
 from copy import deepcopy
 # import time
+from time import time
 
 # DEBUG_LOG_PATH = "/home/nithin/code/RL/seminar/Stage_2/lab/src_finder/.cursor/debug.log"
 
@@ -63,7 +64,7 @@ class Metrics:
         file_path = get_file_path(cfg, "metrics.json")
         with open(file_path, "w") as f:
             json.dump(metrics, f, indent=2)
-        # print(f"Results saved to: {file_path}")
+        print(f"Results saved to: {file_path}")
 
     def to_dict(self, cfg=None):
         metrics = {
@@ -108,8 +109,10 @@ def _step_parallel_env(args):
     env, action = args
     return env.step(int(action))
 
+prev_time = time()
 
 def _run_parallel_dqn_training(cfg, agent, first_env, episode_inits=None):
+    global prev_time
     expt_cfg = cfg["experiment"]
     episodes = expt_cfg["episodes"]
     max_steps = expt_cfg["max_steps"]
@@ -181,13 +184,15 @@ def _run_parallel_dqn_training(cfg, agent, first_env, episode_inits=None):
                     completed += 1
 
                     if completed % print_intvl == 0:
+                        time_taken = float(time()-prev_time)
                         agent.print_intvl(end=' | ')
                         print(
-                            f"Epi {completed:5d} | "
+                            f"te {time_taken:5.2f} | Epi {completed:5d} | "
                             f"Reward {total_reward:7.2f} | "
                             f"Steps {steps:3d} | ",
                             end=''
                         )
+                        prev_time = time()
                         metrics.print_intvl(print_intvl)
 
                     if next_episode < episodes:
@@ -266,7 +271,7 @@ def run_experiment(cfg, episode_init_csv=None, episode_inits=None):
         metrics.save(cfg)
         metrics.plot(cfg)
         agent.save()
-        # print("Experiment finished.\n")
+        print("Experiment finished.\n")
         return metrics.to_dict(cfg)
 
     # ------------------ training loop ------------------
@@ -380,7 +385,7 @@ def run_experiment(cfg, episode_init_csv=None, episode_inits=None):
     if training:
         agent.save()
 
-    # print("Experiment finished.\n")
+    print("Experiment finished.\n")
     return metrics.to_dict(cfg)
 
 if __name__ == "__main__":

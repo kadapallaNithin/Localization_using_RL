@@ -81,7 +81,7 @@ class DQNAgent(QAgent):
 
         self.target_network.load_state_dict(self.q_network.state_dict())
         self.optimizer = optim.Adam(self.q_network.parameters(), lr=lr)
-        self.criterion = nn.SmoothL1Loss()
+        self.criterion = nn.MSELoss()
         print('Created DQN agent', path)
         if not path.endswith('.pth'):
             path += '.pth'

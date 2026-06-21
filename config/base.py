@@ -15,6 +15,7 @@ def get_config():
         "environment": {
             "size": 200,
             "source_intensity": 2.0e7,
+            "max_turn_rate":None,
             "physics": {
                 "altitude": 10.0,
                 "efficiency": 0.8,
@@ -45,8 +46,8 @@ def get_config():
             "params": {
                 "found_reading": 0.95,
                 "found_reward": 100.0,
-                # "delay_penalty": 0.0,
-                "delay_penalty": 0.002,
+                "delay_penalty": 0.0,
+                # "delay_penalty": 0.002,
             },
         },
 

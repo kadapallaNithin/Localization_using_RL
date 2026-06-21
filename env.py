@@ -23,7 +23,7 @@ def build_env(cfg):
     state_builder = build_state(cfg["state"])
     reward_fn = build_reward(cfg["reward"])
 
-    uav = SimUAV(size=env_cfg["size"])
+    uav = SimUAV(size=env_cfg["size"],max_turn_rate=env_cfg.get("max_turn_rate"))
     
     # Get history_length from state config, default to 3
     history_length = cfg["state"].get("history_length", 3)

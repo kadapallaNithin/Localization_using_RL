@@ -81,6 +81,8 @@ class UAVInterface(ABC):
 def wrap_angle(angle):
     return (angle + np.pi) % (2 * np.pi) - np.pi
 
+penalties = set()
+# actions_test = set()
 # ========= Simple Simulated UAV =========
 class SimUAV(UAVInterface):
     def __init__(self, speed_factor=5, size=200, max_turn_rate=np.pi/2): #None
@@ -133,9 +135,21 @@ class SimUAV(UAVInterface):
             np.clip(oy + dy, 0, self.size),
         ]
 
+        actuator_penalty = 0.0
         if self.max_turn_rate is not None and self.head is not None:
             # Shortest signed angular distance on the circle, wrapped to [-π, π]
             diff = (desired_angle - self.head + np.pi) % (2 * np.pi) - np.pi
+            over_actuation = abs(diff) - self.max_turn_rate
+            if over_actuation > 0:
+                actuator_penalty = over_actuation/10*np.pi
+                if actuator_penalty not in penalties:
+                # if True:
+                    penalties.add(actuator_penalty)
+                    # actions_test.add(action)
+                    # print(actions_test)
+                    print('actuation penalty', actuator_penalty)
+                    # print('max_turn_rate', self.max_turn_rate, 'diff', diff, 'desired_angle', desired_angle, 'head', self.head)
+                # print('actuation penalty', actuator_penalty)
             diff = np.clip(diff, -self.max_turn_rate, self.max_turn_rate)
             angle = wrap_angle(self.head + diff)
         else:
@@ -155,12 +169,12 @@ class SimUAV(UAVInterface):
             y = self.size
 
         new_pos = [x, y]
-        if self.env._collides(new_pos):
-            new_pos = self.pos
+        # if self.env._collides(new_pos):
+        #     new_pos = self.pos
 
         self.pos = new_pos
         self.head = angle
-        return self.pos
+        return self.pos, actuator_penalty
 
     def time(self):
         return self._time
@@ -315,8 +329,8 @@ class UAVEnv(gym.Env):
         
         action = options.get('action', self.action_space.sample())
         reset_info['action'] = action
-        self.uav.step(action)
-
+        _, actuator_penalty = self.uav.step(action)
+        
         # Add action and actual post-step heading to histories
         self.action_history.append(action)
         self.heading_history.append(self.uav.get_head() / np.pi)
@@ -350,7 +364,6 @@ class UAVEnv(gym.Env):
             signal_history=self.signal_history, 
             action_history=self.action_history
         )
-        # print(reset_info)
         return obs, {'pos': self.uav.get_position(), 'reset':reset_info}
 
     def step(self, action):
@@ -360,7 +373,7 @@ class UAVEnv(gym.Env):
         self.action_history.append(action)
 
         mt0_meas = self.sensor.read(self._true_reading())
-        self.uav.step(action)
+        _, actuator_penalty = self.uav.step(action)
         self.heading_history.append(self.uav.get_head() / np.pi)  # actual heading after turn
         mt1_meas = self.sensor.read(self._true_reading())
 
@@ -396,6 +409,7 @@ class UAVEnv(gym.Env):
             action_history=self.action_history
         )
         reward, terminated = self.reward_fn.compute(mt0, mt1, self.current_step, self.max_steps)
+        reward -= actuator_penalty  # Apply actuator penalty to reward
         self.trajectory.append({
             "pos": self.uav.get_position(),
             "reward": reward,
@@ -403,7 +417,7 @@ class UAVEnv(gym.Env):
         })
         # print('action', action)
         truncated = (self.current_step >= self.max_steps) and not terminated
-        return obs, reward, terminated, truncated, {'pos':self.uav.get_position()}
+        return obs, reward, terminated, truncated, {'pos':self.uav.get_position(), 'actuator_penalty': actuator_penalty}
 
     def render(
             self,
